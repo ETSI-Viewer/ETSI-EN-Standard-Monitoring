@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ETSI 실시간 규격 조회</title>
+    <title>ETSI 규격 조회</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background-color: #f4f6f9; padding-top: 50px; font-family: 'Segoe UI', sans-serif; }
@@ -19,7 +19,7 @@
         
         <div class="search-box text-center mb-5">
             <h2 class="fw-bold mb-3">ETSI Live Search</h2>
-            <p class="text-muted mb-4">규격 번호를 입력하세요 (예: 301 893, 301 440-1)</p>
+            <p class="text-muted mb-4">규격 번호를 입력하세요 (예: 301 893, 301 908-1)</p>
             
             <div class="input-group input-group-lg">
                 <input type="text" id="inputNo" class="form-control" placeholder="규격 번호..." onkeypress="handleEnter(event)">
@@ -45,7 +45,7 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td class="text-center fw-bold fs-4 text-primary" id="resTitle">-</td>
+                            <td class="text-center fw-bold fs-5 text-primary" id="resTitle">-</td>
                             <td id="cellPub">-</td>
                             <td id="cellFinal">-</td>
                             <td id="cellDraft">-</td>
@@ -78,31 +78,24 @@
 
             try {
                 // 1. 규격 번호 파싱 (하이픈 및 공백 처리)
-                // "301 440 - 1" -> "301440-1"
                 const cleanInput = input.replace(/\s+/g, ""); 
                 
                 let mainNum = cleanInput;
                 let partNum = "";
 
-                // 하이픈이 있는 경우 분리 (예: 301440-1)
+                // 하이픈이 있는 경우 분리
                 if (cleanInput.includes("-")) {
                     const parts = cleanInput.split("-");
-                    mainNum = parts[0];     // 301440
-                    partNum = parts[1];     // 1
-                    // ETSI 규칙: 파트 번호가 1자리면 앞에 0을 붙임 (1 -> 01)
+                    mainNum = parts[0];     
+                    partNum = parts[1];     
                     if (partNum.length === 1) partNum = "0" + partNum; 
                 }
 
-                // 최종 타겟 폴더명 (예: 301893 또는 30144001)
                 let targetFolder = partNum ? (mainNum + partNum) : mainNum;
 
-                // 2. 상위 범위 폴더 계산 (예: 301400_301499)
-                // 규칙: 보통 앞 4자리를 기준으로 100 단위 범위를 가짐
-                // 301893 -> 3018xx, 30144001 -> 3014xx
+                // 2. 상위 범위 폴더 계산
                 let rangePrefix = targetFolder.substring(0, targetFolder.length >= 6 ? 4 : 3);
                 let rangeStart = parseInt(rangePrefix + "00");
-                
-                // 예외적으로 숫자가 짧은 경우의 처리
                 if (targetFolder.length < 5) rangeStart = Math.floor(parseInt(targetFolder) / 100) * 100;
 
                 const rangeFolder = `${rangeStart}_${rangeStart + 99}`;
@@ -136,24 +129,16 @@
             let found = false;
 
             links.forEach(link => {
-                const folderName = link.textContent.trim(); // 예: 02.01.01_60
-                
-                // 버전 폴더 패턴 매칭
+                const folderName = link.textContent.trim();
                 const match = folderName.match(/(\d+\.\d+\.\d+)_(\d+)/);
                 
                 if (match) {
                     const verRaw = match[1];
-                    const suffix = match[2]; // 60, 30, 20
+                    const suffix = match[2]; 
                     const cleanVer = "V" + verRaw.split('.').map(n => parseInt(n)).join('.');
 
-                    // [날짜 찾기 수정]
-                    // 링크의 "바로 앞(previousSibling)"에 있는 텍스트 노드에서 날짜를 찾음
-                    // HTML 구조: [날짜 텍스트] <dir> <a href="...">버전</a>
                     let date = "-";
                     let checkNode = link.previousSibling;
-                    
-                    // 바로 앞 노드가 없거나 텍스트가 아니면(예: <dir> 태그) 그 앞을 한 번 더 확인
-                    // 최대 3번 정도 앞으로 가면서 텍스트를 찾음
                     for(let i=0; i<3; i++) {
                         if(!checkNode) break;
                         const text = checkNode.textContent || "";
@@ -173,7 +158,6 @@
                     };
 
                     found = true;
-                    // 최신 버전 업데이트
                     if (suffix === '60') updateBest(best, 'pub', item);
                     else if (suffix === '30') updateBest(best, 'final', item);
                     else if (suffix === '20') updateBest(best, 'draft', item);
@@ -185,16 +169,40 @@
                 return;
             }
 
-            // 결과 표시
-            document.getElementById('resTitle').innerText = stdNum;
+            // [결과 표시] 제목 포맷팅 함수 적용
+            document.getElementById('resTitle').innerText = formatTitle(stdNum);
+            
             drawCell('cellPub', best.pub, 'success');
             drawCell('cellFinal', best.final, 'warning');
             drawCell('cellDraft', best.draft, '');
             document.getElementById('resultArea').style.display = 'block';
         }
 
+        // [새로운 함수] 규격 번호를 깔끔하게 변환하고 접두어 붙이기
+        function formatTitle(input) {
+            // 1. 숫자와 하이픈만 남기기
+            const clean = input.replace(/[^0-9\-]/g, "");
+            
+            let main = clean;
+            let part = "";
+            
+            // 2. 파트 번호 분리 (301908-1)
+            if (clean.includes("-")) {
+                const parts = clean.split("-");
+                main = parts[0];
+                part = "-" + parts[1];
+            }
+
+            // 3. 앞자리 3자리 뒤에 공백 넣기 (301908 -> 301 908)
+            if (main.length > 3) {
+                main = main.slice(0, 3) + " " + main.slice(3);
+            }
+
+            // 4. 최종 문자열 반환
+            return "ETSI EN " + main + part;
+        }
+
         function updateBest(store, key, newItem) {
-            // 버전 숫자가 더 크면 교체
             if (!store[key] || newItem.raw.localeCompare(store[key].raw, undefined, { numeric: true }) > 0) {
                 store[key] = newItem;
             }
