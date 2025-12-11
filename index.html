@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ETSI 실시간 규격 조회</title>
+    <title>ETSI 규격 조회 (Fixed)</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background-color: #f4f6f9; padding-top: 50px; font-family: 'Segoe UI', sans-serif; }
@@ -12,6 +12,7 @@
         .ver-text { font-weight: bold; font-size: 1.1rem; display: block; }
         .date-text { font-size: 0.85rem; color: #666; margin-top: 2px; }
         .loading-spinner { display: none; margin-top: 20px; }
+        .card-header { font-weight: bold; }
     </style>
 </head>
 <body>
@@ -19,30 +20,28 @@
         
         <div class="search-box text-center mb-5">
             <h2 class="fw-bold mb-3">ETSI Live Search</h2>
-            <p class="text-muted mb-4">규격 번호를 입력하세요 (예: 301 893, 300 440-1)</p>
+            <p class="text-muted mb-4">규격 번호를 입력하세요 (예: 301 893, 301 440-1)</p>
             
             <div class="input-group input-group-lg">
-                <input type="text" id="inputNo" class="form-control" placeholder="규격 번호 입력..." onkeypress="handleEnter(event)">
+                <input type="text" id="inputNo" class="form-control" placeholder="규격 번호..." onkeypress="handleEnter(event)">
                 <button class="btn btn-primary px-4" onclick="runSearch()">검색</button>
             </div>
             
             <div id="loader" class="loading-spinner">
                 <div class="spinner-border text-primary" role="status"></div>
-                <div class="mt-2 text-primary fw-bold">ETSI 서버 접속 중...</div>
+                <div class="mt-2 text-primary fw-bold">서버 데이터 분석 중...</div>
             </div>
         </div>
 
         <div id="resultArea" class="card border-0 shadow-sm mb-5" style="display:none;">
-            <div class="card-header bg-white py-3">
-                <h5 class="mb-0 fw-bold text-primary" id="resTitle">결과</h5>
-            </div>
+            <div class="card-header bg-white py-3 text-primary" id="resTitle">결과</div>
             <div class="card-body p-0">
                 <table class="table table-bordered mb-0 align-middle">
                     <thead>
                         <tr>
-                            <th width="33%" class="bg-success bg-opacity-75 text-white">Publication (정식발행)<br><small>_60</small></th>
-                            <th width="33%" class="bg-warning bg-opacity-75 text-dark">Final Draft (최종초안)<br><small>_30</small></th>
-                            <th width="33%" class="bg-secondary bg-opacity-75 text-white">Draft (초안)<br><small>_20</small></th>
+                            <th width="33%" class="bg-success bg-opacity-75 text-white">Publication (_60)</th>
+                            <th width="33%" class="bg-warning bg-opacity-75 text-dark">Final Draft (_30)</th>
+                            <th width="33%" class="bg-secondary bg-opacity-75 text-white">Draft (_20)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -57,10 +56,10 @@
         </div>
 
         <div id="errorMsg" class="alert alert-danger text-center mt-3" style="display:none;"></div>
-
     </div>
 
     <script>
+        // 프록시 서버 (안정적인 AllOrigins 사용)
         const PROXY_URL = "https://api.allorigins.win/get?url=";
         const ETSI_BASE = "https://www.etsi.org/deliver/etsi_en";
 
@@ -69,8 +68,8 @@
         }
 
         async function runSearch() {
-            const input = document.getElementById('inputNo').value.trim();
-            if (input.length < 3) return alert("정확한 규격 번호를 입력해주세요.");
+            let input = document.getElementById('inputNo').value.trim();
+            if (input.length < 3) return alert("규격 번호를 정확히 입력해주세요.");
 
             // UI 초기화
             document.getElementById('loader').style.display = 'block';
@@ -78,99 +77,161 @@
             document.getElementById('errorMsg').style.display = 'none';
 
             try {
-                // 1. 규격 번호 파싱 및 폴더명 계산 로직 개선
-                // 예: "301 893" -> base: 301893, part: null
-                // 예: "300 440-1" -> base: 300440, part: 01
+                // 1. 규격 번호 -> 폴더 주소 변환 로직 (Part 번호 처리 강화)
+                let mainNum = "";
+                let partNum = "";
                 
-                let baseNum = input.replace(/[^0-9\-]/g, ""); // 숫자와 - 만 남김
-                let folderName = "";
-                let searchRangeNum = ""; // 폴더 범위 계산용 숫자
+                // 공백 제거 및 하이픈 기준 분리
+                input = input.replace(/\s+/g, ""); // "301 440 - 1" -> "301440-1"
 
-                if (baseNum.includes("-")) {
-                    const parts = baseNum.split("-");
-                    const mainPart = parts[0];
-                    let subPart = parts[1];
-                    
-                    // ETSI 규칙: 파트 번호가 1자리면 앞에 0을 붙임 (1 -> 01)
-                    if (subPart.length === 1) subPart = "0" + subPart;
-                    
-                    searchRangeNum = mainPart; // 범위는 앞자리 기준 (300440)
-                    folderName = mainPart + subPart; // 실제 폴더는 합쳐서 (30044001)
+                if (input.includes("-")) {
+                    const parts = input.split("-");
+                    mainNum = parts[0];     // 301440
+                    partNum = parts[1];     // 1
+                    if (partNum.length === 1) partNum = "0" + partNum; // 01
                 } else {
-                    searchRangeNum = baseNum;
-                    folderName = baseNum;
+                    mainNum = input;        // 301893
                 }
 
-                // 2. 범위 폴더 계산 (예: 301893 -> 301800_301899)
-                // 100 단위로 끊어서 범위 생성
-                const rangeStart = Math.floor(parseInt(searchRangeNum) / 100) * 100;
-                const rangeFolder = `${rangeStart}_${rangeStart + 99}`;
+                // 폴더명 생성 (파트가 있으면 합치고, 없으면 그대로)
+                let targetFolder = partNum ? (mainNum + partNum) : mainNum; 
                 
-                // 최종 URL
-                const targetUrl = `${ETSI_BASE}/${rangeFolder}/${folderName}/`;
-                console.log("Target URL:", targetUrl); // 디버깅용
+                // 범위 폴더 계산 (301400_301499)
+                let rangeKey = mainNum; 
+                // 만약 파트가 있는 긴 번호(300440)라면 앞 3자리가 아니라 해당 번호 대역을 찾아야 함
+                // ETSI 규칙: 6자리 숫자일 경우 앞 4자리가 범위 기준인 경우가 많음 (예: 300400_300499)
+                // 하지만 단순화를 위해: 입력값 숫자의 앞자리를 보고 100단위 범위를 잡음
+                const baseVal = parseInt(targetFolder.substring(0, targetFolder.length >= 6 ? 4 : 3) + "00"); 
+                // 예: 301893 -> 301800, 30044001 -> 300440?? (ETSI 구조가 복잡하므로 단순 계산 시도)
+                
+                // [수정] ETSI의 실제 디렉토리 구조에 맞춘 범위 계산
+                // 보통 100 단위로 끊깁니다. (301800_301899)
+                const folderInt = parseInt(targetFolder.substring(0, 6)); // 앞 6자리 기준 (301893)
+                const rangeStart = Math.floor(folderInt / 100) * 100;
+                const rangeFolder = `${rangeStart}_${rangeStart + 99}`;
 
-                // 3. 프록시 요청
-                const response = await fetch(PROXY_URL + encodeURIComponent(targetUrl));
+                const fullUrl = `${ETSI_BASE}/${rangeFolder}/${targetFolder}/`;
+                console.log("Target:", fullUrl);
+
+                // 2. 데이터 요청
+                const response = await fetch(PROXY_URL + encodeURIComponent(fullUrl));
                 const json = await response.json();
-
-                if (!json.contents || json.status?.http_code === 404) {
-                    throw new Error("규격 폴더를 찾을 수 없습니다.");
-                }
-
-                // 4. 파싱 및 표시
-                parseAndDisplay(json.contents, input, targetUrl);
+                
+                if (!json.contents) throw new Error("Connection Failed");
+                
+                // 3. 파싱 시작
+                parseData(json.contents, targetFolder, fullUrl);
 
             } catch (err) {
-                document.getElementById('errorMsg').innerText = "결과를 찾을 수 없습니다. (번호를 확인해주세요)";
-                document.getElementById('errorMsg').style.display = 'block';
+                console.error(err);
+                showError("데이터를 가져올 수 없습니다. 규격 번호를 확인해주세요. (" + err.message + ")");
             } finally {
                 document.getElementById('loader').style.display = 'none';
             }
         }
 
-        function parseAndDisplay(html, inputTitle, baseUrl) {
+        function parseData(html, stdNum, baseUrl) {
+            // HTML 내의 <pre> 태그 내용을 찾습니다 (텍스트 리스트)
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, "text/html");
-            const links = doc.querySelectorAll('a');
+            const preText = doc.querySelector('pre') ? doc.querySelector('pre').innerText : doc.body.innerText;
             
-            // 텍스트 라인별 분리 (날짜 찾기 위함)
-            // <pre> 태그 내부의 텍스트이거나, 일반 텍스트일 수 있음
-            const rawText = doc.body.innerText || doc.body.textContent;
-            const lines = rawText.split('\n');
-
+            // 한 줄씩 쪼갭니다.
+            const lines = preText.split('\n');
+            
             let best = { pub: null, final: null, draft: null };
-            let foundAny = false;
+            let found = false;
 
-            links.forEach(link => {
-                const href = link.getAttribute('href');
-                const folderName = link.textContent.trim();
+            // [핵심] 정규식으로 '날짜'와 '버전명'이 같은 줄에 있는지 검사
+            // 예: "11/28/2024  1:21 PM  <dir> 02.02.01_60"
+            const regex = /(\d{1,2}[\/-]\d{1,2}[\/-]\d{4}).*?(\d+\.\d+\.\d+)_(\d+)/;
 
-                // 버전 폴더 패턴 매칭 (예: 2.1.1_60)
-                // 숫자.숫자.숫자_숫자 형식
-                const match = folderName.match(/(\d+\.\d+\.\d+)_(\d+)/);
-                
-                if (match && href && !href.startsWith('?') && !href.startsWith('/')) {
-                    foundAny = true;
-                    const verRaw = match[1]; // 2.1.1
-                    const suffix = match[2]; // 60
+            lines.forEach(line => {
+                const match = line.match(regex);
+                if (match) {
+                    found = true;
+                    const date = match[1];     // 11/28/2024
+                    const verRaw = match[2];   // 02.02.01
+                    const suffix = match[3];   // 60
                     const cleanVer = "V" + verRaw.split('.').map(n => parseInt(n)).join('.');
-
-                    // 날짜 찾기 로직 개선 (라인 매칭)
-                    let date = "-";
-                    // 해당 폴더 이름이 포함된 라인을 찾고, 그 라인에서 날짜 패턴 추출
-                    for (let line of lines) {
-                        if (line.includes(folderName)) {
-                            // 패턴: MM/DD/YYYY 또는 YYYY-MM-DD
-                            const dateMatch = line.match(/(\d{1,2}\/\d{1,2}\/\d{4})/) || line.match(/(\d{4}-\d{2}-\d{2})/);
-                            if (dateMatch) {
-                                date = dateMatch[0];
-                                break; 
-                            }
-                        }
-                    }
 
                     const item = {
                         ver: cleanVer,
                         raw: verRaw,
-                        date
+                        date: date,
+                        // 링크 생성 (해당 버전 폴더로 이동)
+                        link: baseUrl + verRaw + "_" + suffix + "/" 
+                    };
+
+                    // 최신 버전 비교 및 저장
+                    if (suffix === '60') updateBest(best, 'pub', item);
+                    else if (suffix === '30') updateBest(best, 'final', item);
+                    else if (suffix === '20') updateBest(best, 'draft', item);
+                }
+            });
+
+            if (!found) {
+                // <pre> 파싱 실패 시 백업 로직: <a> 태그만 뒤지기 (날짜는 포기하거나 따로 찾기)
+                const links = doc.querySelectorAll('a');
+                links.forEach(a => {
+                    const txt = a.innerText.trim();
+                    const m = txt.match(/(\d+\.\d+\.\d+)_(\d+)/);
+                    if(m) {
+                        found = true;
+                        // 날짜 없이 버전만이라도 표시
+                        const item = {
+                            ver: "V" + m[1].split('.').map(n=>parseInt(n)).join('.'),
+                            raw: m[1],
+                            date: "(날짜없음)",
+                            link: baseUrl + txt + "/"
+                        };
+                         if (m[2] === '60') updateBest(best, 'pub', item);
+                    }
+                });
+            }
+
+            if (!found) {
+                showError("폴더는 찾았으나 버전(_60, _30) 정보를 식별할 수 없습니다.");
+                return;
+            }
+
+            // 결과 표시
+            document.getElementById('resTitle').innerText = `검색 결과: ${stdNum}`;
+            drawCell('cellPub', best.pub, 'success');
+            drawCell('cellFinal', best.final, 'warning');
+            drawCell('cellDraft', best.draft, '');
+            document.getElementById('resultArea').style.display = 'block';
+        }
+
+        function updateBest(store, key, newItem) {
+            // 버전 숫자가 더 크면 교체 (문자열 비교지만 포맷이 같아서 작동)
+            if (!store[key] || newItem.raw > store[key].raw) {
+                store[key] = newItem;
+            }
+        }
+
+        function drawCell(id, data, color) {
+            const el = document.getElementById(id);
+            if (!data) {
+                el.innerHTML = '<span class="text-muted d-block text-center py-3">-</span>';
+                el.className = '';
+            } else {
+                el.className = 'table-' + color;
+                el.innerHTML = `
+                    <div class="text-center py-2">
+                        <span class="ver-text mb-1">${data.ver}</span>
+                        <span class="date-text d-block mb-2">${data.date}</span>
+                        <a href="${data.link}" target="_blank" class="btn btn-sm btn-dark w-100">PDF 폴더</a>
+                    </div>
+                `;
+            }
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('errorMsg');
+            el.innerText = msg;
+            el.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
